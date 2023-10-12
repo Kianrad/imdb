@@ -14,6 +14,7 @@ type Name struct {
 	ID       string `json:",omitempty"`
 	URL      string `json:",omitempty"`
 	FullName string `json:",omitempty"`
+	Image    string `json:",omitempty"`
 }
 
 // String formats a Name.

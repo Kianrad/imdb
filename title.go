@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
 // A Title represents an IMDb title (movie, series, etc.).
@@ -184,6 +186,37 @@ type personJSON struct {
 	Name string
 }
 
+func findImageWithTagAlt(htmlContent, targetAlt string) (string, error) {
+	reader := strings.NewReader(htmlContent)
+	tokenizer := html.NewTokenizer(reader)
+
+	for {
+		tokenType := tokenizer.Next()
+		switch tokenType {
+		case html.ErrorToken:
+			return "", fmt.Errorf("Image with alt='%s' not found", targetAlt)
+		case html.StartTagToken, html.SelfClosingTagToken:
+			token := tokenizer.Token()
+			if token.Data == "img" {
+				alt := ""
+				for _, attr := range token.Attr {
+					if attr.Key == "alt" {
+						alt = attr.Val
+						break
+					}
+				}
+				if alt == targetAlt {
+					for _, attr := range token.Attr {
+						if attr.Key == "srcset" {
+							return attr.Val, nil
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // Parse parses a Title from its page.
 func (t *Title) Parse(page []byte) error {
 	s := schemaRE.FindSubmatch(page)
@@ -286,11 +319,22 @@ func (t *Title) Parse(page []byte) error {
 		if nameSlice(t.Writers).Has(id) {
 			continue
 		}
-		t.Writers = append(t.Writers, Name{
-			ID:       id,
-			URL:      fmt.Sprintf(nameURL, id),
-			FullName: e.Name,
-		})
+		image, err := findImageWithTagAlt(string(page), e.Name)
+
+		if err == nil {
+			t.Writers = append(t.Writers, Name{
+				ID:       id,
+				URL:      fmt.Sprintf(nameURL, id),
+				FullName: e.Name,
+				Image:    image,
+			})
+		} else {
+			t.Writers = append(t.Writers, Name{
+				ID:       id,
+				URL:      fmt.Sprintf(nameURL, id),
+				FullName: e.Name,
+			})
+		}
 	}
 
 	t.Actors = nil
@@ -306,11 +350,23 @@ func (t *Title) Parse(page []byte) error {
 		if nameSlice(t.Actors).Has(id) {
 			continue
 		}
-		t.Actors = append(t.Actors, Name{
-			ID:       id,
-			URL:      fmt.Sprintf(nameURL, id),
-			FullName: e.Name,
-		})
+		imageSet, err := findImageWithTagAlt(string(page), e.Name)
+
+		if err == nil {
+			image := strings.Split(imageSet, ", ")
+			t.Actors = append(t.Actors, Name{
+				ID:       id,
+				URL:      fmt.Sprintf(nameURL, id),
+				FullName: e.Name,
+				Image:    image[len(image)-1],
+			})
+		} else {
+			t.Actors = append(t.Actors, Name{
+				ID:       id,
+				URL:      fmt.Sprintf(nameURL, id),
+				FullName: e.Name,
+			})
+		}
 	}
 
 	t.Genres = v.Genre
